@@ -4,7 +4,7 @@
 # ║ Project        : antarctica                                       ║
 # ║ Author         : Sergio Alías-Segura                              ║
 # ║ Created        : 2025-07-10                                       ║
-# ║ Last Modified  : 2025-07-10                                       ║
+# ║ Last Modified  : 2025-07-15                                       ║
 # ║ GitHub Repo    : https://github.com/SergioAlias/antarctica        ║
 # ║ Contact        : salias[at]ucm[dot]es                             ║
 # ╚═══════════════════════════════════════════════════════════════════╝
@@ -17,13 +17,20 @@ library(qiime2R)
 
 ## Prepare data
 
-setwd("projects/antarctica/")
+set.seed(1234)
+local_metadata <- "antartida-16S"
+amplicon <- "16S" # ITS or 16S
 
-sample <- data.frame(
-  sample_id = c("AN1_1__ITS", "AN10_1__ITS", "AN10_2__ITS"),
-  sample_name = c("AN1__ITS", "AN10__ITS", "AN10__ITS"),
-  depth = c("338", "337", "337") 
-)
+metadata_file_path <- file.path("/home/sergio/scratch",
+                                local_metadata,
+                                "metadata.tsv")
+
+sample <- read.csv(metadata_file_path,
+                   header = TRUE,
+                   sep = "\t")
+sample$dummy_col <- rep("yes", nrow(sample))
+
+setwd(file.path("~/projects/antarctica", amplicon))
 
 feature_table <- qiime2R::read_qza("filtered_table.qza")$data
 
@@ -44,17 +51,32 @@ obj <- parse_tax_data(asv,
                                     tax_name = "taxon_name"))
 
 obj$data$tax_abund <- calc_taxon_abund(obj, "tax_data",
-                                       cols = sample$sample_id)
+                                       cols = sample$ID)
+
+obj$data$tax_occ <- calc_n_samples(obj, "tax_abund",
+                                   groups = sample$dummy_col,
+                                   cols = sample$ID)
 
 obj$data$diff_table <- compare_groups(obj,
                                       dataset = "tax_abund",
-                                      cols = sample$sample_id,
-                                      groups = sample$depth)
+                                      cols = sample$ID,
+                                      groups = sample$Depth)
 print(obj$data$diff_table)
 
-## Plot
+## Plots
 
-set.seed(1234)
+### General heat tree
+
+heat_tree(obj, 
+          node_label = taxon_names,
+          node_size = n_obs,
+          node_color = yes, 
+          node_size_axis_label = "ASV count",
+          node_color_axis_label = "Samples with reads",
+          layout = "davidson-harel",
+          initial_layout = "reingold-tilford")
+
+### Pairwise comparison
 
 heat_tree(obj, 
           node_label = taxon_names,
@@ -66,3 +88,9 @@ heat_tree(obj,
           node_color_axis_label = "Log 2 ratio of median proportions",
           layout = "davidson-harel",
           initial_layout = "reingold-tilford")
+
+obj$data$diff_table$wilcox_p_value <- p.adjust(obj$data$diff_table$wilcox_p_value,
+                                               method = "fdr")
+range(obj$data$diff_table$wilcox_p_value, finite = TRUE) 
+
+### All-vs-all comparison
